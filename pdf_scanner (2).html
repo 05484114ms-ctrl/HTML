@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>סורק תיבות טקסט</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#1a1a2e;color:#eee;direction:rtl;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+#topbar{background:#16213e;padding:8px 14px;display:flex;align-items:center;gap:8px;border-bottom:2px solid #0f3460;flex-wrap:wrap}
+h1{font-size:15px;color:#e94560;margin-left:auto;white-space:nowrap}
+.btn{background:#0f3460;border:none;color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;transition:.2s;white-space:nowrap}
+.btn:hover{background:#e94560}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.active{background:#e94560}
+input[type=file]{display:none}
+#controls{background:#16213e;padding:6px 14px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #0f3460;font-size:12px}
+label.lbl{color:#aaa;font-size:11px;white-space:nowrap}
+input[type=range]{accent-color:#e94560;width:80px}
+span.val{color:#e94560;font-weight:700;min-width:24px;display:inline-block}
+select.ctl{background:#0f3460;border:1px solid #0f3460;color:#fff;border-radius:5px;padding:3px 7px;font-size:12px;cursor:pointer}
+#status{background:#0f3460;padding:3px 14px;font-size:12px;color:#7fdbff;min-height:22px;flex-shrink:0}
+#main{flex:1;overflow:hidden;display:flex;min-height:0}
+#canvas-area{flex:1;overflow:auto;display:flex;justify-content:center;align-items:flex-start;padding:16px;background:#111827}
+#canvas-wrap{position:relative;display:inline-block;line-height:0;flex-shrink:0}
+#cv-base{display:block}
+#cv-overlay{position:absolute;top:0;left:0;pointer-events:none}
+#cv-cols{position:absolute;top:0;left:0;pointer-events:none}
+#scan-line{position:absolute;left:0;right:0;height:2px;background:rgba(233,69,96,.7);display:none;pointer-events:none}
+#side{background:#16213e;width:230px;min-width:200px;display:flex;flex-direction:column;border-right:1px solid #0f3460;overflow:hidden;flex-shrink:0}
+#side-tabs{display:flex;border-bottom:1px solid #0f3460}
+.stab{flex:1;padding:7px 4px;text-align:center;font-size:11px;cursor:pointer;color:#aaa;border-bottom:2px solid transparent}
+.stab.active{color:#e94560;border-bottom-color:#e94560}
+#side-content{flex:1;overflow-y:auto;padding:8px}
+.box-item{background:#0f3460;border-radius:5px;padding:5px 8px;margin-bottom:4px;font-size:11px;cursor:pointer;border-right:3px solid transparent;transition:.15s}
+.box-item:hover{background:#1a3a60}
+.col-item{border-radius:5px;padding:6px 10px;margin-bottom:5px;font-size:12px;border-right:3px solid}
+.col-label{font-weight:700;margin-bottom:2px}
+.col-info{font-size:10px;color:#aaa}
+#page-nav{display:flex;gap:6px;align-items:center}
+</style>
+</head>
+<body>
+<div id="topbar">
+  <button class="btn" onclick="document.getElementById('fi').click()">📂 פתח PDF</button>
+  <input type="file" id="fi" accept=".pdf" onchange="loadPDF(this)">
+  <div id="page-nav" style="display:none">
+    <button class="btn" id="btn-prev" onclick="changePage(-1)">◀</button>
+    <span id="pg-info" style="font-size:12px;color:#aaa">עמוד 1/1</span>
+    <button class="btn" id="btn-next" onclick="changePage(1)">▶</button>
+  </div>
+  <div class="tb-sep" style="width:1px;height:20px;background:#ffffff20;margin:0 2px"></div>
+  <button class="btn" id="btn-detect-cols" onclick="detectColumns()" disabled>📐 זהה טורים</button>
+  <button class="btn" id="btn-scan" onclick="startScan()" disabled>🔍 סרוק תיבות</button>
+  <button class="btn" id="btn-export" onclick="exportData()" disabled>💾 ייצא JSON</button>
+  <label class="lbl">מצב:</label>
+  <select class="ctl" id="sel-mode">
+    <option value="full">סריקה מלאה</option>
+    <option value="cols">סריקה לפי טורים</option>
+  </select>
+  <h1>📄 סורק תיבות טקסט</h1>
+</div>
+
+<div id="controls">
+  <label class="lbl">סף כהות:</label>
+  <input type="range" id="sl-thresh" min="5" max="200" value="35" oninput="vt.textContent=this.value">
+  <span class="val" id="vt">35</span>
+
+  <label class="lbl">מרווח שורות:</label>
+  <input type="range" id="sl-vgap" min="1" max="30" value="5" oninput="vv.textContent=this.value">
+  <span class="val" id="vv">5</span>
+
+  <label class="lbl">מרווח עמודות:</label>
+  <input type="range" id="sl-hgap" min="1" max="50" value="14" oninput="vh.textContent=this.value">
+  <span class="val" id="vh">14</span>
+
+  <label class="lbl">מרווח טורים:</label>
+  <input type="range" id="sl-cgap" min="5" max="80" value="20" oninput="vc.textContent=this.value">
+  <span class="val" id="vc">20</span>
+
+  <label class="lbl">מהירות:</label>
+  <input type="range" id="sl-speed" min="1" max="10" value="6" oninput="vs.textContent=this.value">
+  <span class="val" id="vs">6</span>
+</div>
+
+<div id="status">ממתין לקובץ PDF...</div>
+
+<div id="main">
+  <div id="side">
+    <div id="side-tabs">
+      <div class="stab active" onclick="showTab('boxes')">תיבות</div>
+      <div class="stab" onclick="showTab('cols')">טורים</div>
+    </div>
+    <div id="side-content">
+      <div id="tab-boxes"><span style="color:#555;font-size:11px">טרם סרקת</span></div>
+      <div id="tab-cols" style="display:none"><span style="color:#555;font-size:11px">לחץ "זהה טורים"</span></div>
+    </div>
+  </div>
+
+  <div id="canvas-area">
+    <div id="canvas-wrap">
+      <canvas id="cv-base"></canvas>
+      <canvas id="cv-cols"></canvas>
+      <canvas id="cv-overlay"></canvas>
+      <div id="scan-line"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfDoc=null,pageNum=1,totalPages=1;
+let scanning=false;
+let detectedBoxes=[];
+let detectedCols=[];
+const cvBase=document.getElementById('cv-base');
+const cvOvl=document.getElementById('cv-overlay');
+const cvCols=document.getElementById('cv-cols');
+const ctxBase=cvBase.getContext('2d');
+const ctxOvl=cvOvl.getContext('2d');
+const ctxCols=cvCols.getContext('2d');
+const scanLine=document.getElementById('scan-line');
+const statusEl=document.getElementById('status');
+
+const COL_COLORS=['#e94560','#7fdbff','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22'];
+const COL_NAMES=['טור א','טור ב','טור ג','טור ד','טור ה','טור ו','טור ז'];
+// Talmud-specific names by position (right→left)
+const TALMUD_NAMES=['תוספות','גמרא','רש"י','הגהות'];
+
+// ── LOAD ──
+async function loadPDF(inp){
+  const f=inp.files[0]; if(!f) return;
+  setStatus('טוען...');
+  const ab=await f.arrayBuffer();
+  pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
+  totalPages=pdfDoc.numPages; pageNum=1;
+  document.getElementById('page-nav').style.display=totalPages>1?'flex':'none';
+  await renderPage();
+  document.getElementById('btn-detect-cols').disabled=false;
+  document.getElementById('btn-scan').disabled=false;
+  setStatus('PDF נטען — לחץ "זהה טורים" או "סרוק תיבות"');
+}
+
+async function renderPage(){
+  const page=await pdfDoc.getPage(pageNum);
+  const scale=Math.min(1.5, (window.innerHeight-160)/page.getViewport({scale:1}).height);
+  const vp=page.getViewport({scale});
+  cvBase.width=cvOvl.width=cvCols.width=vp.width;
+  cvBase.height=cvOvl.height=cvCols.height=vp.height;
+  await page.render({canvasContext:ctxBase,viewport:vp}).promise;
+  ctxOvl.clearRect(0,0,cvOvl.width,cvOvl.height);
+  ctxCols.clearRect(0,0,cvCols.width,cvCols.height);
+  detectedBoxes=[]; detectedCols=[];
+  renderBoxList(); renderColList();
+  document.getElementById('pg-info').textContent=`עמוד ${pageNum}/${totalPages}`;
+  document.getElementById('btn-export').disabled=true;
+}
+
+async function changePage(d){
+  const np=pageNum+d;
+  if(np<1||np>totalPages) return;
+  pageNum=np; await renderPage();
+  setStatus('עמוד '+pageNum+' נטען.');
+}
+
+// ── GET IMAGE DATA ──
+function getImgData(){ return ctxBase.getImageData(0,0,cvBase.width,cvBase.height).data; }
+
+function pixelDark(data,x,y,W,thresh){
+  const i=(y*W+x)*4;
+  return (0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]) < 255-thresh;
+}
+
+// ── COLUMN DETECTION ──
+// Scan vertical columns of pixels; find wide white gaps = column separators
+async function detectColumns(){
+  const thresh=parseInt(document.getElementById('sl-thresh').value);
+  const cgap=parseInt(document.getElementById('sl-cgap').value);
+  const W=cvBase.width, H=cvBase.height;
+  const data=getImgData();
+
+  setStatus('מזהה טורים...');
+
+  // For each x column, count dark pixels
+  const colDark=new Int32Array(W);
+  for(let x=0;x<W;x++){
+    let cnt=0;
+    for(let y=0;y<H;y++) if(pixelDark(data,x,y,W,thresh)) cnt++;
+    colDark[x]=cnt;
+  }
+
+  // Smooth slightly
+  const smooth=new Float32Array(W);
+  const ker=3;
+  for(let x=ker;x<W-ker;x++){
+    let s=0; for(let k=-ker;k<=ker;k++) s+=colDark[x+k];
+    smooth[x]=s/(2*ker+1);
+  }
+
+  // Find white-column gaps (regions where smooth≈0)
+  const minGapW=cgap;
+  const gaps=[]; // {x0,x1}
+  let inGap=false,gx0=0;
+  for(let x=0;x<W;x++){
+    if(!inGap && smooth[x]<2){ inGap=true; gx0=x; }
+    else if(inGap && smooth[x]>=2){
+      if(x-gx0>=minGapW) gaps.push({x0:gx0,x1:x-1,mid:Math.round((gx0+x-1)/2)});
+      inGap=false;
+    }
+  }
+  if(inGap && W-gx0>=minGapW) gaps.push({x0:gx0,x1:W-1,mid:Math.round((gx0+W-1)/2)});
+
+  // Build columns from gaps
+  const cols=[];
+  let prevX=0;
+  for(const g of gaps){
+    if(g.x0-prevX>30) cols.push({x0:prevX, x1:g.x0-1, gapAfter:g});
+    prevX=g.x1+1;
+  }
+  if(prevX<W-30) cols.push({x0:prevX,x1:W-1,gapAfter:null});
+
+  // Filter tiny cols
+  detectedCols=cols.filter(c=>c.x1-c.x0>20);
+
+  // Auto-name: assume RTL layout (rightmost = tosfot, then gemara, then rashi...)
+  detectedCols.forEach((c,i)=>{
+    c.name = i<TALMUD_NAMES.length ? TALMUD_NAMES[i] : COL_NAMES[i]||('טור '+(i+1));
+    c.color = COL_COLORS[i%COL_COLORS.length];
+  });
+
+  // Draw column separators
+  ctxCols.clearRect(0,0,W,H);
+  detectedCols.forEach(c=>{
+    ctxCols.fillStyle=c.color+'18';
+    ctxCols.fillRect(c.x0,0,c.x1-c.x0,H);
+    ctxCols.strokeStyle=c.color+'99';
+    ctxCols.lineWidth=1.5;
+    ctxCols.setLineDash([6,4]);
+    ctxCols.strokeRect(c.x0+0.5,0.5,c.x1-c.x0,H-1);
+    ctxCols.setLineDash([]);
+    // label
+    ctxCols.fillStyle=c.color;
+    ctxCols.font='bold 12px Arial';
+    ctxCols.textAlign='center';
+    ctxCols.fillText(c.name, (c.x0+c.x1)/2, 16);
+  });
+
+  renderColList();
+  showTab('cols');
+  setStatus(`✓ זוהו ${detectedCols.length} טורים. כעת לחץ "סרוק תיבות" עם מצב "לפי טורים".`);
+  document.getElementById('sel-mode').value='cols';
+}
+
+// ── MAIN SCAN ──
+async function startScan(){
+  if(scanning) return;
+  scanning=true;
+  document.getElementById('btn-scan').disabled=true;
+  document.getElementById('btn-export').disabled=true;
+  ctxOvl.clearRect(0,0,cvOvl.width,cvOvl.height);
+  detectedBoxes=[];
+
+  const thresh=parseInt(document.getElementById('sl-thresh').value);
+  const vgap=parseInt(document.getElementById('sl-vgap').value);
+  const hgap=parseInt(document.getElementById('sl-hgap').value);
+  const speed=parseInt(document.getElementById('sl-speed').value);
+  const mode=document.getElementById('sel-mode').value;
+  const W=cvBase.width,H=cvBase.height;
+  const data=getImgData();
+
+  // Define scan regions
+  let regions=[];
+  if(mode==='cols' && detectedCols.length>0){
+    regions=detectedCols.map(c=>({x0:c.x0,x1:c.x1,y0:0,y1:H-1,name:c.name,color:c.color}));
+  } else {
+    regions=[{x0:0,x1:W-1,y0:0,y1:H-1,name:'מלא',color:null}];
+  }
+
+  scanLine.style.display='block';
+  let boxIdx=0;
+
+  for(const reg of regions){
+    const RW=reg.x1-reg.x0+1;
+    setStatus(`סורק: ${reg.name}...`);
+
+    // row scan within region
+    const rowHasDark=new Uint8Array(H);
+    const frameSkip=Math.max(1,Math.round(16/speed));
+    for(let y=reg.y0;y<=reg.y1;y++){
+      let dark=0;
+      for(let x=reg.x0;x<=reg.x1;x++) if(pixelDark(data,x,y,W,thresh)) dark++;
+      rowHasDark[y]=dark>1?1:0;
+      if((y-reg.y0)%frameSkip===0){ scanLine.style.top=y+'px'; await tick(); }
+    }
+
+    // band detection
+    const bands=[];
+    let inB=false,bStart=0;
+    for(let y=reg.y0;y<=reg.y1;y++){
+      if(!inB && rowHasDark[y]){ inB=true; bStart=y; }
+      else if(inB && !rowHasDark[y]){
+        let gs=0,gy=y;
+        while(gy<=reg.y1 && !rowHasDark[gy] && gs<=vgap){gy++;gs++;}
+        if(gs>vgap||gy>reg.y1){ bands.push({y0:bStart,y1:y-1}); inB=false; }
+      }
+    }
+    if(inB) bands.push({y0:bStart,y1:reg.y1});
+
+    // column split within each band
+    for(const band of bands){
+      const colHasDark=new Uint8Array(RW);
+      for(let xi=0;xi<RW;xi++){
+        const x=reg.x0+xi;
+        for(let y=band.y0;y<=band.y1;y++) if(pixelDark(data,x,y,W,thresh)){colHasDark[xi]=1;break;}
+      }
+      const segs=[];
+      let inS=false,sStart=0;
+      for(let xi=0;xi<RW;xi++){
+        if(!inS && colHasDark[xi]){inS=true;sStart=xi;}
+        else if(inS && !colHasDark[xi]){
+          let gs=0,gx=xi;
+          while(gx<RW && !colHasDark[gx] && gs<=hgap){gx++;gs++;}
+          if(gs>hgap||gx>=RW){segs.push({x0:reg.x0+sStart,x1:reg.x0+xi-1});inS=false;}
+        }
+      }
+      if(inS) segs.push({x0:reg.x0+sStart,x1:reg.x0+RW-1});
+
+      for(const seg of segs){
+        // tighten vertical
+        let ty0=band.y1,ty1=band.y0;
+        for(let y=band.y0;y<=band.y1;y++){
+          for(let x=seg.x0;x<=seg.x1;x++){
+            if(pixelDark(data,x,y,W,thresh)){if(y<ty0)ty0=y;if(y>ty1)ty1=y;break;}
+          }
+        }
+        if(ty1>=ty0 && seg.x1-seg.x0>3 && ty1-ty0>2){
+          const color=reg.color||COL_COLORS[boxIdx%COL_COLORS.length];
+          const box={id:boxIdx++,x:seg.x0,y:ty0,w:seg.x1-seg.x0,h:ty1-ty0,region:reg.name,color};
+          detectedBoxes.push(box);
+          // draw immediately
+          ctxOvl.strokeStyle=color;
+          ctxOvl.lineWidth=1.5;
+          ctxOvl.strokeRect(box.x+.5,box.y+.5,box.w,box.h);
+          ctxOvl.fillStyle=color+'1a';
+          ctxOvl.fillRect(box.x+.5,box.y+.5,box.w,box.h);
+        }
+      }
+    }
+    scanLine.style.top=reg.y1+'px';
+    await tick();
+  }
+
+  scanLine.style.display='none';
+  renderBoxList();
+  showTab('boxes');
+  document.getElementById('btn-scan').disabled=false;
+  document.getElementById('btn-export').disabled=false;
+  scanning=false;
+  setStatus(`✓ זוהו ${detectedBoxes.length} תיבות טקסט.`);
+}
+
+// ── SIDE PANEL ──
+function showTab(t){
+  document.getElementById('tab-boxes').style.display=t==='boxes'?'block':'none';
+  document.getElementById('tab-cols').style.display=t==='cols'?'block':'none';
+  document.querySelectorAll('.stab').forEach((s,i)=>s.classList.toggle('active',(i===0&&t==='boxes')||(i===1&&t==='cols')));
+}
+
+function renderBoxList(){
+  const el=document.getElementById('tab-boxes');
+  if(!detectedBoxes.length){el.innerHTML='<span style="color:#555;font-size:11px">טרם סרקת</span>';return;}
+  // group by region
+  const groups={};
+  detectedBoxes.forEach(b=>{
+    if(!groups[b.region]) groups[b.region]=[];
+    groups[b.region].push(b);
+  });
+  let html='';
+  for(const [reg,boxes] of Object.entries(groups)){
+    const col=boxes[0].color;
+    html+=`<div style="font-size:11px;color:${col};font-weight:700;margin:6px 0 3px">${reg} (${boxes.length})</div>`;
+    boxes.forEach(b=>{
+      html+=`<div class="box-item" style="border-right-color:${b.color}" onclick="highlightBox(${b.id})">
+        <span style="color:#aaa">#${b.id+1}</span> &nbsp;(${b.x},${b.y}) ${b.w}×${b.h}
+      </div>`;
+    });
+  }
+  el.innerHTML=html;
+}
+
+function renderColList(){
+  const el=document.getElementById('tab-cols');
+  if(!detectedCols.length){el.innerHTML='<span style="color:#555;font-size:11px">לחץ "זהה טורים"</span>';return;}
+  el.innerHTML=detectedCols.map((c,i)=>`
+    <div class="col-item" style="background:${c.color}18;border-right-color:${c.color}">
+      <div class="col-label" style="color:${c.color}">${c.name}</div>
+      <div class="col-info">x: ${c.x0}–${c.x1} | רוחב: ${c.x1-c.x0}px</div>
+      <input type="text" value="${c.name}" onchange="renameCol(${i},this.value)"
+        style="margin-top:4px;width:100%;background:#0f3460;border:1px solid #0f3460;color:#fff;border-radius:4px;padding:2px 6px;font-size:11px">
+    </div>`).join('');
+}
+
+function renameCol(i,name){
+  if(detectedCols[i]) detectedCols[i].name=name;
+  renderColList();
+  // update boxes in that col
+  detectedBoxes.forEach(b=>{ if(b.region===detectedCols[i]?.name||true){} });
+}
+
+function highlightBox(id){
+  const b=detectedBoxes.find(x=>x.id===id); if(!b) return;
+  ctxOvl.save();
+  ctxOvl.strokeStyle='#fff';
+  ctxOvl.lineWidth=3;
+  ctxOvl.strokeRect(b.x,b.y,b.w,b.h);
+  ctxOvl.restore();
+  setTimeout(redrawBoxes,500);
+}
+
+function redrawBoxes(){
+  ctxOvl.clearRect(0,0,cvOvl.width,cvOvl.height);
+  detectedBoxes.forEach(b=>{
+    ctxOvl.strokeStyle=b.color;
+    ctxOvl.lineWidth=1.5;
+    ctxOvl.strokeRect(b.x+.5,b.y+.5,b.w,b.h);
+    ctxOvl.fillStyle=b.color+'1a';
+    ctxOvl.fillRect(b.x+.5,b.y+.5,b.w,b.h);
+  });
+}
+
+// ── EXPORT ──
+function exportData(){
+  const out={page:pageNum, columns:detectedCols.map(c=>({name:c.name,x0:c.x0,x1:c.x1})), boxes:detectedBoxes};
+  const a=document.createElement('a');
+  a.href='data:application/json;charset=utf-8,'+encodeURIComponent(JSON.stringify(out,null,2));
+  a.download='סריקה_עמוד_'+pageNum+'.json';
+  a.click();
+}
+
+function setStatus(msg){statusEl.textContent=msg;}
+function tick(){return new Promise(r=>requestAnimationFrame(r));}
+</script>
+</body>
+</html>
